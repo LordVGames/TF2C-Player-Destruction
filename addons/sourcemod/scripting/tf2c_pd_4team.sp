@@ -10,9 +10,23 @@
 
 
 /*
-	------------------
-	TEXT CHANNEL USAGE
-	------------------
+	--------------------------
+	TEXT CHANNEL USAGE (4team)
+	--------------------------
+
+	1 - BLU Uncapped Pickups
+	2 - RED Uncapped Pickups
+	3 - GRN Uncapped Pickups
+	4 - YLW Uncapped Pickups
+	5 - Pickups currently held by player
+	5 - Player's team leader status (in addition to the pickup count in 4team)
+	6 - Capture zone opening/closing countdown
+	6 - Team victory countdown (replaces the capture zone countdown)
+*/
+/*
+	--------------------------
+	TEXT CHANNEL USAGE (2team)
+	--------------------------
 
 	1 - BLU Uncapped Pickups
 	2 - RED Uncapped Pickups
@@ -57,9 +71,14 @@ enum // HUD text channels
 {
 	Channel_BluePickups = 1,
 	Channel_RedPickups,
-	Channel_PlayerPickups,
-	Channel_TeamLeader,
+	Channel_GreenPickups,
+	Channel_YellowPickups,
+	Channel_PlayerStatus,
 	Channel_Countdown,
+
+	Channel_PlayerPickups = 3,
+	Channel_TeamLeader = 4,
+	Channel_Countdown_2team = 5,
 }
 
 
@@ -69,12 +88,14 @@ int g_PickupCount[MAXPLAYERS + 1];
 int g_PrevPickupCount[MAXPLAYERS + 1];
 int g_CarriedFlagEnt[MAXPLAYERS + 1] = {-1, ...};
 int g_WasCarryingFlag[MAXPLAYERS + 1] = {-1, ...};
-int g_PlayerInCaptureZones[MAXPLAYERS + 1][2];
+int g_PlayerInCaptureZones[MAXPLAYERS + 1][4];
 bool g_IsInRespawnRoom[MAXPLAYERS + 1];
 
 // Gamemode
+bool g_Is4Team;
 int g_DomLogicEnt;
 int g_TopPickupCount_Red, g_TopPickupCount_Blue;
+int g_TopPickupCount_Green, g_TopPickupCount_Yellow;
 char g_PickupModel[64], g_PickupModel_Big[64];
 char g_PickupSound_Drop[64], g_PickupSound_Collect[64];
 bool g_IsInWaitingForPlayersTime;
@@ -83,13 +104,20 @@ int g_PlayerCountForCaptureDelay;
 // Team leader
 int g_TeamLeader_Red = -1;
 int g_TeamLeader_Blue = -1;
+int g_TeamLeader_Green = -1;
+int g_TeamLeader_Yellow = -1;
 int g_TeamLeader_DispenserEnt_Red = -1;
 int g_TeamLeader_DispenserEnt_Blue = -1;
+int g_TeamLeader_DispenserEnt_Green = -1;
+int g_TeamLeader_DispenserEnt_Yellow = -1;
 int g_TeamLeader_GlowEnt_Red = -1;
 int g_TeamLeader_GlowEnt_Blue = -1;
+int g_TeamLeader_GlowEnt_Green = -1;
+int g_TeamLeader_GlowEnt_Yellow = -1;
 // For the dispenser trigger outlining
 int g_iLaserMaterial;
 int g_iHaloMaterial;
+
 
 // HUD
 bool g_HudTimer_FirstFinaleCountdown;
@@ -97,6 +125,8 @@ int g_HudTimerNum_Finale;
 int g_HudTimerNum_CaptureZone;
 int g_HudTextColor_Red[3] = {250, 80, 80};
 int g_HudTextColor_Blue[3] = {80, 160, 250};
+int g_HudTextColor_Green[3] = {80, 250, 80};
+int g_HudTextColor_Yellow[3] = {250, 250, 80};
 
 // Arrays
 Handle g_CaptureZonesBlocking;
@@ -112,15 +142,15 @@ Handle g_FlagCapturesConvar;
 ConVar g_UseBigPickupModels_ConVar, g_AllowSpyTeamLeader_ConVar;
 bool g_UseBigPickupModels, g_AllowSpyTeamLeader;
 
-#include "tf2c_pd_base_logic.sp"
+#include "tf2c_pd_4team_logic.sp"
 
 
 
 public Plugin myinfo =
 {
-	name = "Player Destruction Gamemode for TF2C",
+	name = "Player Destruction Gamemode for TF2C (with 4 team support)",
 	author = "LordVGames",
-	description = "Recreates player destruction gamemode functionality.",
+	description = "Recreates player destruction gamemode functionality, now with 4 team support.",
 	version = VERSION,
 	url = "N/A"
 }
@@ -161,6 +191,8 @@ public void OnMapStart()
 	HookEntityOutput("tf_logic_domination", "OnPointLimitAny", OnPointLimit);
 	HookEntityOutput("tf_logic_domination", "OnPointLimitRed", OnPointLimit);
 	HookEntityOutput("tf_logic_domination", "OnPointLimitBlue", OnPointLimit);
+	HookEntityOutput("tf_logic_domination", "OnPointLimitGreen", OnPointLimit);
+	HookEntityOutput("tf_logic_domination", "OnPointLimitYellow", OnPointLimit);
 	PrecacheSound("ui/chime_rd_2base_pos.wav"); // Capture sound
 	PrecacheSound("ui/chime_rd_2base_neg.wav"); // Victory countdown sound
 	PrecacheModel(TRIGGER_MODEL);
@@ -188,6 +220,8 @@ public void OnPluginStart()
 	// Team filters don't exist in the tf2c plugin AFAIK, so we make them ourselves here.
 	AddMultiTargetFilter("@red", FilterTeam_Red, "Red Team", false);
 	AddMultiTargetFilter("@blue", FilterTeam_Blue, "Blue Team", false);
+	AddMultiTargetFilter("@green", FilterTeam_Green, "Green Team", false);
+	AddMultiTargetFilter("@yellow", FilterTeam_Yellow, "Yellow Team", false);
 
 	CreateConVar("sm_pd_version", VERSION, "Version of the plugin.", FCVAR_REPLICATED|FCVAR_NOTIFY|FCVAR_DONTRECORD);
 	g_AllowSpyTeamLeader_ConVar = CreateConVar("sm_pd_allow_spy_leader", "0", "Allows spy to become a team leader.", FCVAR_NOTIFY, true, 0.0, true, 1.0);
@@ -228,10 +262,12 @@ public void OnPluginEnd()
 {
 	RemoveMultiTargetFilter("@red", FilterTeam_Red);
 	RemoveMultiTargetFilter("@blue", FilterTeam_Blue);
+	RemoveMultiTargetFilter("@green", FilterTeam_Green);
+	RemoveMultiTargetFilter("@yellow", FilterTeam_Yellow);
 }
 
 /**
- * Borrowed from "left4dhooks.sp".
+ * The following 4 functions were borrowed from "left4dhooks.sp".
  */
 public bool FilterTeam_Red(const char[] pattern, ArrayList clients)
 {
@@ -245,14 +281,35 @@ public bool FilterTeam_Red(const char[] pattern, ArrayList clients)
 	return true;
 }
 
-/**
- * Borrowed from "left4dhooks.sp".
- */
 public bool FilterTeam_Blue(const char[] pattern, ArrayList clients)
 {
 	for(int i = 1; i <= MaxClients; i++)
 	{
 		if(IsClientInGame(i) && GetClientTeam(i) == 3)
+		{
+			clients.Push(i);
+		}
+	}
+	return true;
+}
+
+public bool FilterTeam_Green(const char[] pattern, ArrayList clients)
+{
+	for(int i = 1; i <= MaxClients; i++)
+	{
+		if(IsClientInGame(i) && GetClientTeam(i) == 4)
+		{
+			clients.Push(i);
+		}
+	}
+	return true;
+}
+
+public bool FilterTeam_Yellow(const char[] pattern, ArrayList clients)
+{
+	for(int i = 1; i <= MaxClients; i++)
+	{
+		if(IsClientInGame(i) && GetClientTeam(i) == 5)
 		{
 			clients.Push(i);
 		}
@@ -322,6 +379,10 @@ public void OnEntityCreated(int spawnedEnt, const char[] classname)
 	{
 		g_DomLogicEnt = spawnedEnt;
 		RequestFrame(GetDomLogicValues);
+	}
+	if (strcmp(classname, "tf_gamerules") == 0)
+	{
+		RequestFrame(Get4TeamStatus, spawnedEnt);
 	}
 	if (strcmp(classname, "dispenser_touch_trigger") == 0)
 	{
@@ -450,12 +511,12 @@ Action Command_GivePDPoints(int client, int argc)
 		}
 		int targetClient = targetList[i];
 		bool isTargetInRespawnRoom;
-
 		if (g_IsInRespawnRoom[targetClient])
 		{
 			isTargetInRespawnRoom = true;
 			PrintToChat(targetClient, "%s You were not given points because you are in the respawn room.", TAG);
 		}
+
 		if (g_CarriedFlagEnt[targetClient] == -1 && !isTargetInRespawnRoom)
 		{
 			CreatePickup(1, targetClient);
@@ -508,18 +569,17 @@ Action Command_ReloadClientHud(int client, int argc)
 		return Plugin_Handled;
 	}
 
-	ClearHudText(client, Channel_RedPickups);
+	// Clear all teams' pickup counts on the HUD
 	ClearHudText(client, Channel_BluePickups);
+	ClearHudText(client, Channel_RedPickups);
+	ClearHudText(client, Channel_GreenPickups);
+	ClearHudText(client, Channel_YellowPickups);
 	CreateTimer(0.25, Timer_ShowHudText_TeamPickupCounts, client);
-	if (g_PickupCount[client] > 0)
+	bool isCLientLeader = IsClientLeadingAnyTeam(client);
+	if (g_PickupCount[client] > 0 || isCLientLeader)
 	{
-		ClearHudText(client, Channel_PlayerPickups);
+		ClearHudText(client, Channel_PlayerStatus);
 		CreateTimer(0.25, Timer_ShowHudText_ClientPickupCount, client);
-	}
-	if (IsClientLeadingAnyTeam(client))
-	{
-		ClearHudText(client, Channel_TeamLeader);
-		CreateTimer(0.25, Timer_ShowHudText_TeamLeaderStatus, client);
 	}
 	ClearHudText(client, Channel_Countdown);
 	PrintToChat(client, "%s HUD elements should be fixed.", TAG);
@@ -584,7 +644,7 @@ void OnEvent_PlayerDeath(Event event, const char[] eventName, bool silent)
 		// g_PickupCount should be 0, but if it's somehow not, it still works fine
 		CreatePickup(g_PickupCount[client] + g_Logic_PlayerDeathPickupValue, client, killer);
 		g_PickupCount[client] = 0;
-		ClearHudText(client, Channel_PlayerPickups);
+		ClearHudText(client, Channel_PlayerStatus);
 	}
 }
 
@@ -612,7 +672,7 @@ void OnEvent_RoundStart(Event event, const char[] eventName, bool silent)
 
 void OnFlagPickup(const char[] outputName, int flagEnt, int client, float delay)
 {
-	DebugPrint(Debug_Pickups, "OnFlagPickup");
+	DebugPrint(Debug_Pickups, "OnFlagPickup %i by %i", flagEnt, client);
 	SetEdictFlags(flagEnt, GetEdictFlags(flagEnt) | FL_EDICT_DONTSEND);
 	AcceptEntityInput(flagEnt, "Disable", client);
 	g_CarriedFlagEnt[client] = flagEnt;
@@ -642,6 +702,24 @@ void OnFlagPickup(const char[] outputName, int flagEnt, int client, float delay)
 					g_Logic_HasBlueFirstFlagStolen = true;
 				}
 				FireCustomOutput("OnBlueFlagStolen", g_DomLogicEnt, client);
+			}
+			case TFTeam_Green:
+			{
+				if (!g_Logic_HasGreenFirstFlagStolen)
+				{
+					FireCustomOutput("OnGreenFirstFlagStolen", g_DomLogicEnt, client);
+					g_Logic_HasGreenFirstFlagStolen = true;
+				}
+				FireCustomOutput("OnGreenFlagStolen", g_DomLogicEnt, client);
+			}
+			case TFTeam_Yellow:
+			{
+				if (!g_Logic_HasYellowFirstFlagStolen)
+				{
+					FireCustomOutput("OnYellowFirstFlagStolen", g_DomLogicEnt, client);
+					g_Logic_HasYellowFirstFlagStolen = true;
+				}
+				FireCustomOutput("OnYellowFlagStolen", g_DomLogicEnt, client);
 			}
 		}
 	}
@@ -710,6 +788,14 @@ public Action OnPointLimit(const char[] outputName, int caller, int activator, f
 		{
 			winningTeam = TFTeam_Blue;
 		}
+		case 'G':
+		{
+			winningTeam = TFTeam_Green;
+		}
+		case 'Y':
+		{
+			winningTeam = TFTeam_Yellow;
+		}
 	}
 	if (winningTeam == TFTeam_Unassigned)
 	{
@@ -722,7 +808,6 @@ public Action OnPointLimit(const char[] outputName, int caller, int activator, f
 	g_HudTimerNum_Finale = GetCustomKeyValueInt(g_DomLogicEnt, "finale_length");
 	g_HudTimer_WinCountdown = CreateTimer(1.0, Timer_ShowHudText_TeamWinCountdown, winningTeam, TIMER_REPEAT);
 	TriggerTimer(g_HudTimer_WinCountdown);
-	g_Logic_OnPointLimitOccurred = true;
 	return Plugin_Continue;
 }
 
@@ -742,11 +827,12 @@ bool ShouldBlockCapture(int captureZone)
 			return false;
 		}
 	}
-
+	
 	bool hasRedPlayer, hasBluePlayer;
+	bool hasGreenPlayer, hasYellowPlayer;
 	for (int c = 1; c <= MaxClients; c++)
 	{
-		for (int z = 0; z < 2; z++)
+		for (int z = 0; z < 4; z++)
 		{
 			if (g_PlayerInCaptureZones[c][z] == captureZone)
 			{
@@ -760,15 +846,48 @@ bool ShouldBlockCapture(int captureZone)
 					{
 						hasBluePlayer = true;
 					}
+					case TFTeam_Green:
+					{
+						hasGreenPlayer = true;
+					}
+					case TFTeam_Yellow:
+					{
+						hasYellowPlayer = true;
+					}
 				}
 				break;
 			}
 		}
 	}
 
-	if (hasBluePlayer &&  hasRedPlayer)
+	// This looks cluttered, but AFAIK it's the only way to do this.
+	if (hasRedPlayer)
 	{
-		return true;
+		if (hasBluePlayer || hasGreenPlayer || hasYellowPlayer)
+		{
+			return true;
+		}
+	}
+	if (hasBluePlayer)
+	{
+		if (hasRedPlayer || hasGreenPlayer || hasYellowPlayer)
+		{
+			return true;
+		}
+	}
+	if (hasGreenPlayer)
+	{
+		if (hasRedPlayer || hasBluePlayer || hasYellowPlayer)
+		{
+			return true;
+		}
+	}
+	if (hasYellowPlayer)
+	{
+		if (hasRedPlayer || hasBluePlayer || hasGreenPlayer)
+		{
+			return true;
+		}
 	}
 	return false;
 }
@@ -781,13 +900,13 @@ public void OnStartTouchCaptureZone(int captureZone, int client)
 	}
 	DebugPrint(Debug_CaptureZone, "OnStartTouchCaptureZone %i in %i", client, captureZone);
 
-	if (g_PlayerInCaptureZones[client][1] != 0)
+	if (g_PlayerInCaptureZones[client][3] != 0)
 	{
 		LogError("%s Couldn't add 3rd capture zone index to player \"%N\"'s list of capturezones occupied by them!", TAG, client);
 	}
 	else
 	{
-		for (int z = 0; z < 2; z++)
+		for (int z = 0; z < 4; z++)
 		{
 			if (g_PlayerInCaptureZones[client][z] == 0)
 			{
@@ -800,10 +919,10 @@ public void OnStartTouchCaptureZone(int captureZone, int client)
 
 	if (ShouldBlockCapture(captureZone))
 	{
-		DebugPrint(Debug_CaptureZone, "Red and Blue players in capture zone!\nKilling capture timers if they exist!");
+		DebugPrint(Debug_CaptureZone, "Capture in capture zone %i needs to be blocked!\nKilling capture timers if they exist!", captureZone);
 		for (int c = 1; c <= MaxClients; c++)
 		{
-			for (int z = 0; z < 2; z++)
+			for (int z = 0; z < 4; z++)
 			{
 				if (g_PlayerInCaptureZones[c][z] == captureZone)
 				{
@@ -850,7 +969,7 @@ public void OnEndTouchCaptureZone(int captureZone, int client)
 	}
 	DebugPrint(Debug_CaptureZone, "OnEndTouchCaptureZone %i in %i", client, captureZone);
 
-	for (int z = 1; z > -1; z--)
+	for (int z = 3; z > -1; z--)
 	{
 		if (g_PlayerInCaptureZones[client][z] != 0)
 		{
@@ -871,7 +990,7 @@ public void OnEndTouchCaptureZone(int captureZone, int client)
 		for (int c = 1; c <= MaxClients; c++)
 		{
 			if (!IsValidClientInGame(c)) continue;
-			for (int z = 0; z < 2; z++)
+			for (int z = 0; z < 4; z++)
 			{
 				if (g_PlayerInCaptureZones[c][z] == captureZone && captureZoneTeam == GetClientTeam(c) || captureZoneTeam == 0)
 				{
@@ -1098,7 +1217,7 @@ void OnPickupCountUpdated(int client, TFTeam clientTeam = TFTeam_Unassigned)
 	}
 	else
 	{
-		ClearHudText(client, Channel_PlayerPickups);
+		ClearHudText(client, Channel_PlayerStatus);
 	}
 }
 
@@ -1134,7 +1253,7 @@ Action Timer_PDCapture(Handle timer, DataPack data)
 	{
 		shouldBlockCapture = true;
 	}
-	for (int z = 0; z < 2; z++)
+	for (int z = 0; z < 4; z++)
 	{
 		if (g_PlayerInCaptureZones[client][z] == captureZone)
 		{
@@ -1200,6 +1319,14 @@ void DoPDPickupCapture(int client, int captureZone)
 		{
 			FireCustomOutput("OnCapTeam2_PD", captureZone, client);
 		}
+		case TFTeam_Green:
+		{
+			FireCustomOutput("OnCapTeam3_PD", captureZone, client);
+		}
+		case TFTeam_Yellow:
+		{
+			FireCustomOutput("OnCapTeam4_PD", captureZone, client);
+		}
 	}
 }
 //#endregion
@@ -1217,7 +1344,7 @@ void DoPDPickupCapture(int client, int captureZone)
  */
 void TryUpdateTeamLeader(int client, TFTeam clientTeam = TFTeam_Unassigned)
 {
-	if (!IsValidClient(client))
+	if (!IsValidClientInGame(client))
 	{
 		return;
 	}
@@ -1264,7 +1391,7 @@ void TryUpdateTeamLeader(int client, TFTeam clientTeam = TFTeam_Unassigned)
 
 				if (g_TopPickupCount_Red <= 0)
 				{
-					if (client == g_TeamLeader_Red)
+					if (client == g_TeamLeader_Red && IsValidClientInGame(g_TeamLeader_Red))
 					{
 						UnsetupLeader(client);
 					}
@@ -1319,7 +1446,7 @@ void TryUpdateTeamLeader(int client, TFTeam clientTeam = TFTeam_Unassigned)
 
 				if (g_TopPickupCount_Blue <= 0)
 				{
-					if (client == g_TeamLeader_Blue)
+					if (client == g_TeamLeader_Blue && IsValidClientInGame(g_TeamLeader_Blue))
 					{
 						UnsetupLeader(client);
 					}
@@ -1327,6 +1454,114 @@ void TryUpdateTeamLeader(int client, TFTeam clientTeam = TFTeam_Unassigned)
 					return;
 				}
 				if (client != g_TeamLeader_Blue)
+				{
+					return;
+				}
+
+				int newLeader = GetTeamLeader(clientTeam);
+				if (newLeader == client)
+				{
+					return;
+				}
+				UnsetupLeader(client);
+				SetupLeader(newLeader);
+			}
+		}
+		case TFTeam_Green:
+		{
+			if (g_PickupCount[client] > g_TopPickupCount_Green)
+			{
+				DebugPrint(Debug_Leader, "%N has surpassed green's top pickup count of %i!", client, g_TopPickupCount_Green);
+				if (!g_AllowSpyTeamLeader && TF2_GetPlayerClass(client) == TFClass_Spy)
+				{
+					DebugPrint(Debug_Leader, "But they are a spy, so they will be ignored.");
+					return;
+				}
+				
+				if (g_TopPickupCount_Green == 0)
+				{
+					FireCustomOutput("OnGreenHasPoints", g_DomLogicEnt, client);
+				}
+				g_TopPickupCount_Green = g_PickupCount[client];
+				if (client == g_TeamLeader_Green)
+				{
+					return;
+				}
+				else if (IsValidClientInGame(g_TeamLeader_Green))
+				{
+					UnsetupLeader(g_TeamLeader_Green);
+				}
+				SetupLeader(client);
+			}
+			else if (g_PickupCount[client] < g_TopPickupCount_Green)
+			{
+				DebugPrint(Debug_Leader, "%N is below green's top pickup count of %i!", client, g_TopPickupCount_Green);
+				g_TopPickupCount_Green = GetTeamPickupCount_Top(clientTeam);
+
+				if (g_TopPickupCount_Green <= 0)
+				{
+					if (client == g_TeamLeader_Green && IsValidClientInGame(g_TeamLeader_Green))
+					{
+						UnsetupLeader(client);
+					}
+					FireCustomOutput("OnGreenHitZeroPoints", g_DomLogicEnt, client);
+					return;
+				}
+				if (client != g_TeamLeader_Green)
+				{
+					return;
+				}
+
+				int newLeader = GetTeamLeader(clientTeam);
+				if (newLeader == client)
+				{
+					return;
+				}
+				UnsetupLeader(client);
+				SetupLeader(newLeader);
+			}
+		}
+		case TFTeam_Yellow:
+		{
+			if (g_PickupCount[client] > g_TopPickupCount_Yellow)
+			{
+				DebugPrint(Debug_Leader, "%N has surpassed yellow's top pickup count of %i!", client, g_TopPickupCount_Yellow);
+				if (!g_AllowSpyTeamLeader && TF2_GetPlayerClass(client) == TFClass_Spy)
+				{
+					DebugPrint(Debug_Leader, "But they are a spy, so they will be ignored.");
+					return;
+				}
+				
+				if (g_TopPickupCount_Yellow == 0)
+				{
+					FireCustomOutput("OnYellowHasPoints", g_DomLogicEnt, client);
+				}
+				g_TopPickupCount_Yellow = g_PickupCount[client];
+				if (client == g_TeamLeader_Yellow)
+				{
+					return;
+				}
+				else if (IsValidClientInGame(g_TeamLeader_Yellow))
+				{
+					UnsetupLeader(g_TeamLeader_Yellow);
+				}
+				SetupLeader(client);
+			}
+			else if (g_PickupCount[client] < g_TopPickupCount_Yellow)
+			{
+				DebugPrint(Debug_Leader, "%N is below yellow's top pickup count of %i!", client, g_TopPickupCount_Yellow);
+				g_TopPickupCount_Yellow = GetTeamPickupCount_Top(clientTeam);
+
+				if (g_TopPickupCount_Yellow <= 0)
+				{
+					if (client == g_TeamLeader_Yellow && IsValidClientInGame(g_TeamLeader_Yellow))
+					{
+						UnsetupLeader(client);
+					}
+					FireCustomOutput("OnYellowHitZeroPoints", g_DomLogicEnt, client);
+					return;
+				}
+				if (client != g_TeamLeader_Yellow)
 				{
 					return;
 				}
@@ -1540,11 +1775,23 @@ void SetupLeader(int leader)
 		case TFTeam_Blue:
 		{
 			g_TeamLeader_Blue = leader;
-			g_TeamLeader_GlowEnt_Blue = CreateTeamLeaderGlow(leader);
 			g_TeamLeader_DispenserEnt_Blue = CreateTeamLeaderDispenser(leader);
+			g_TeamLeader_GlowEnt_Blue = CreateTeamLeaderGlow(leader);
+		}
+		case TFTeam_Green:
+		{
+			g_TeamLeader_Green = leader;
+			g_TeamLeader_DispenserEnt_Green = CreateTeamLeaderDispenser(leader);
+			g_TeamLeader_GlowEnt_Green = CreateTeamLeaderGlow(leader);
+		}
+		case TFTeam_Yellow:
+		{
+			g_TeamLeader_Yellow = leader;
+			g_TeamLeader_DispenserEnt_Yellow = CreateTeamLeaderDispenser(leader);
+			g_TeamLeader_GlowEnt_Yellow = CreateTeamLeaderGlow(leader);
 		}
 	}
-	CreateTimer(0.1, Timer_ShowHudText_TeamLeaderStatus, leader);
+	CreateTimer(0.1, Timer_ShowHudText_ClientPickupCount, leader);
 }
 
 /**
@@ -1565,12 +1812,20 @@ void UnsetupLeader(int prevLeader)
 		{
 			g_TeamLeader_Blue = -1;
 		}
+		case TFTeam_Green:
+		{
+			g_TeamLeader_Green = -1;
+		}
+		case TFTeam_Yellow:
+		{
+			g_TeamLeader_Yellow = -1;
+		}
 	}
 	KillTeamLeaderDispenser(prevLeader);
 	KillTeamLeaderGlow(prevLeader);
 	if (IsValidClientInGame(prevLeader))
 	{
-		ClearHudText(prevLeader, Channel_TeamLeader);
+		CreateTimer(0.1, Timer_ShowHudText_ClientPickupCount, prevLeader);
 	}
 }
 
@@ -1594,7 +1849,7 @@ int CreateTeamLeaderDispenser(int client)
 	}
 
 	DispatchKeyValue(dispenserEnt, "classname", "mapobj_cart_dispenser");
-	DispatchKeyValue(dispenserEnt, "spawnflags", "12");
+	DispatchKeyValue(dispenserEnt, "spawnflags", "8");
 	switch (clientTeam)
 	{
 		case TFTeam_Red:
@@ -1606,6 +1861,16 @@ int CreateTeamLeaderDispenser(int client)
 		{
 			DebugPrint(Debug_Dispenser, "Creating dispenser for team BLUE");
 			DispatchKeyValue(dispenserEnt, "targetname", "pddispenser_blue");
+		}
+		case TFTeam_Green:
+		{
+			DebugPrint(Debug_Dispenser, "Creating dispenser for team GREEN");
+			DispatchKeyValue(dispenserEnt, "targetname", "pddispenser_Green");
+		}
+		case TFTeam_Yellow:
+		{
+			DebugPrint(Debug_Dispenser, "Creating dispenser for team YELLOW");
+			DispatchKeyValue(dispenserEnt, "targetname", "pddispenser_yellow");
 		}
 	}
 	DispatchKeyValueInt(dispenserEnt, "TeamNum", view_as<int>(clientTeam));
@@ -1639,7 +1904,9 @@ void FixLeaderDispenserTrigger(int dispenserTrigger)
 	if (
 		dispenser != -1 &&
 		dispenser != g_TeamLeader_DispenserEnt_Red &&
-		dispenser != g_TeamLeader_DispenserEnt_Blue
+		dispenser != g_TeamLeader_DispenserEnt_Blue &&
+		dispenser != g_TeamLeader_DispenserEnt_Green &&
+		dispenser != g_TeamLeader_DispenserEnt_Yellow
 	)
 	{
 		return;
@@ -1709,6 +1976,26 @@ void KillTeamLeaderDispenser(int client)
 			RemoveEntity(g_TeamLeader_DispenserEnt_Blue);
 			g_TeamLeader_DispenserEnt_Blue = -1;
 		}
+		case TFTeam_Green:
+		{
+			if (!IsValidEntity(g_TeamLeader_DispenserEnt_Green))
+			{
+				return;
+			}
+			DebugPrint(Debug_Dispenser, "Killing green leader dispenser index %i...", g_TeamLeader_DispenserEnt_Green);
+			RemoveEntity(g_TeamLeader_DispenserEnt_Green);
+			g_TeamLeader_DispenserEnt_Green = -1;
+		}
+		case TFTeam_Yellow:
+		{
+			if (!IsValidEntity(g_TeamLeader_DispenserEnt_Yellow))
+			{
+				return;
+			}
+			DebugPrint(Debug_Dispenser, "Killing yellow leader dispenser index %i...", g_TeamLeader_DispenserEnt_Yellow);
+			RemoveEntity(g_TeamLeader_DispenserEnt_Yellow);
+			g_TeamLeader_DispenserEnt_Yellow = -1;
+		}
 	}
 }
 
@@ -1726,8 +2013,8 @@ int CreateTeamLeaderGlow(int client)
 	float clientPos[3];
 	GetEntPropVector(client, Prop_Send, "m_vecOrigin", clientPos);
 	clientPos[2] -= 2500.0;
-	TeleportEntity(glowEnt, clientPos, NULL_VECTOR, NULL_VECTOR);
 	DispatchSpawn(glowEnt);
+	TeleportEntity(glowEnt, clientPos, NULL_VECTOR, NULL_VECTOR);
 
 	switch (TF2_GetPlayerClass(client))
 	{
@@ -1746,7 +2033,7 @@ int CreateTeamLeaderGlow(int client)
 	float hands_away_from_my_intel[3] = {9909999.0, 99990099.0, 99900999.0}; // Removes possiblity to take the intel away by touching the player.
 	SetEntPropVector(glowEnt, Prop_Send, "m_vecMins", hands_away_from_my_intel);
 	SetEntPropVector(glowEnt, Prop_Send, "m_vecMaxs", hands_away_from_my_intel);
-
+	
 	SetVariantInt(GetClientTeam(client));
 	AcceptEntityInput(glowEnt, "SetTeam");
 	SetVariantString("!activator");
@@ -1755,7 +2042,7 @@ int CreateTeamLeaderGlow(int client)
 	SetVariantString("partyhat");
 	AcceptEntityInput(glowEnt, "SetParentAttachment", client);
 	// This fades the model but not the glow
-	// Doing this fixes broken eyes/facial flexes
+	// Doing this fixes broken eyes/facial flexes along with hiding the wrong texture for green and yellow leaders
 	// It takes a second to take effect but at least this means I don't need custom models to fix it
 	SetEntityRenderFx(glowEnt, RENDERFX_FADE_FAST);
 	return glowEnt;
@@ -1786,6 +2073,26 @@ void KillTeamLeaderGlow(int client)
 			RemoveEntity(g_TeamLeader_GlowEnt_Blue);
 			g_TeamLeader_GlowEnt_Blue = -1;
 		}
+		case TFTeam_Green:
+		{
+			if (!IsValidEntity(g_TeamLeader_GlowEnt_Green))
+			{
+				return;
+			}
+			DebugPrint(Debug_Dispenser, "Killing green leader glow index %i...", g_TeamLeader_GlowEnt_Green);
+			RemoveEntity(g_TeamLeader_GlowEnt_Green);
+			g_TeamLeader_GlowEnt_Green = -1;
+		}
+		case TFTeam_Yellow:
+		{
+			if (!IsValidEntity(g_TeamLeader_GlowEnt_Yellow))
+			{
+				return;
+			}
+			DebugPrint(Debug_Dispenser, "Killing yellow leader glow index %i...", g_TeamLeader_GlowEnt_Yellow);
+			RemoveEntity(g_TeamLeader_GlowEnt_Yellow);
+			g_TeamLeader_GlowEnt_Yellow = -1;
+		}
 	}
 }
 
@@ -1796,7 +2103,7 @@ void KillTeamLeaderGlow(int client)
  */
 void FixSpyLeaders()
 {
-	for (int t = 2; t < 4; t++)
+	for (int t = 2; t < 6; t++)
 	{
 		TFTeam team = view_as<TFTeam>(t);
 		int teamTopPickupCount = GetTeamPickupCount_Top(team); // 0
@@ -1826,6 +2133,24 @@ void FixSpyLeaders()
 					g_TopPickupCount_Blue = 0;
 					FireCustomOutput("OnBlueHitZeroPoints", g_DomLogicEnt, g_TeamLeader_Blue);
 				}
+				case TFTeam_Green:
+				{
+					if (IsValidClient(g_TeamLeader_Green))
+					{
+						UnsetupLeader(g_TeamLeader_Green);
+					}
+					g_TopPickupCount_Green = 0;
+					FireCustomOutput("OnGreenHitZeroPoints", g_DomLogicEnt, g_TeamLeader_Green);
+				}
+				case TFTeam_Yellow:
+				{
+					if (IsValidClient(g_TeamLeader_Yellow))
+					{
+						UnsetupLeader(g_TeamLeader_Yellow);
+					}
+					g_TopPickupCount_Yellow = 0;
+					FireCustomOutput("OnYellowHitZeroPoints", g_DomLogicEnt, g_TeamLeader_Yellow);
+				}
 			}
 			ShowHudText_TeamPickupCounts(.team=team);
 			return;
@@ -1848,32 +2173,61 @@ void FixSpyLeaders()
 //        --------
 
 /**
- * Shows the number of collected pickups a client has on the hud.
+ * "ShowHudText_TeamLeaderStatus" was consolidated into this function to open up a text channel needed for 4 team.
+ * 
+ * Shows the number of collected pickups a client has on the hud, along with the team leader status if specified.
  *
- * @param client     Client to display the info to.
+ * @param client     		Client to display the info to.
+ * @param isTeamLeader     	Should the team leader text also be displayed?
  */
-void ShowHudText_ClientPickupCount(int client)
+void ShowHudText_ClientPickupCount(int client, bool isTeamLeader)
 {
 	if (!IsValidClientInGame(client) || IsFakeClient(client))
 	{
 		return;
 	}
+	DebugPrint(Debug_HUD, "ShowHudText_ClientPickupCount %i to %N (Leader: %s)", g_PickupCount[client], client, isTeamLeader ? "True" : "False");
 
-	DebugPrint(Debug_HUD, "ShowHudText_ClientPickupCount %i to %N", g_PickupCount[client], client);
-	SetHudTextParams(-1.0, 0.9, 6969.0, 250, 250, 250, 255, 1, 0.1, 0.1, 0.1);
+	char msg[64];
 	if (g_PickupCount[client] == 1)
 	{
-		ShowHudText(client, Channel_PlayerPickups, "You have %i pickup!", g_PickupCount[client]);
+		Format(msg, sizeof(msg), "You have %i pickup!", g_PickupCount[client]);
 	}
 	else if (g_PickupCount[client] > 1)
 	{
-		ShowHudText(client, Channel_PlayerPickups, "You have %i pickups!", g_PickupCount[client]);
+		Format(msg, sizeof(msg), "You have %i pickups!", g_PickupCount[client]);
 	}
+
+	if (isTeamLeader)
+	{
+		if (g_Is4Team)
+		{
+			StrCat(msg, sizeof(msg), "\nYou're team leader!");
+		}
+		else
+		{
+			switch (TF2_GetClientTeam(client))
+			{
+				case TFTeam_Red:
+				{
+					SetHudTextParams(-1.0, 0.9, 6969.0, g_HudTextColor_Red[0], g_HudTextColor_Red[1], g_HudTextColor_Red[2], 255, 2, 0.1, 0.1, 0.0);
+				}
+				case TFTeam_Blue:
+				{
+					SetHudTextParams(-1.0, 0.9, 6969.0, g_HudTextColor_Blue[0], g_HudTextColor_Blue[1], g_HudTextColor_Blue[2], 255, 2, 0.1, 0.1, 0.0);
+				}
+			}
+			ShowHudText(client, Channel_TeamLeader, "\nYou're team leader!");
+			return;
+		}
+	}
+	SetHudTextParams(-1.0, 0.9, 6969.0, 250, 250, 250, 255, 1, 0.1, 0.1, 0.1);
+	ShowHudText(client, Channel_PlayerStatus, msg);
 }
 
 Action Timer_ShowHudText_ClientPickupCount(Handle timer, int client)
 {
-	ShowHudText_ClientPickupCount(client);
+	ShowHudText_ClientPickupCount(client, IsClientLeadingAnyTeam(client));
 	return Plugin_Stop;
 }
 
@@ -1887,8 +2241,11 @@ void ShowHudText_TeamPickupCounts(int client = -1, TFTeam team = TFTeam_Unassign
 {
 	DebugPrint(Debug_HUD, "ShowHudText_TeamPickupCounts (Team %i, client %i)", view_as<int>(team), client);
 	char hudMsg_Red[6], hudMsg_Blue[6];
+	char hudMsg_Green[6], hudMsg_Yellow[6];
 	int totalPickupCount_Red = GetTeamPickupCount_Total(TFTeam_Red);
 	int totalPickupCount_Blue = GetTeamPickupCount_Total(TFTeam_Blue);
+	int totalPickupCount_Green = GetTeamPickupCount_Total(TFTeam_Green);
+	int totalPickupCount_Yellow = GetTeamPickupCount_Total(TFTeam_Yellow);
 
 	if (g_TopPickupCount_Red > 0)
 	{
@@ -1907,6 +2264,24 @@ void ShowHudText_TeamPickupCounts(int client = -1, TFTeam team = TFTeam_Unassign
 	else
 	{
 		Format(hudMsg_Blue, sizeof(hudMsg_Blue), "%i", totalPickupCount_Blue);
+	}
+
+	if (g_TopPickupCount_Green > 0)
+	{
+		Format(hudMsg_Green, sizeof(hudMsg_Green), "%i\n%i", g_TopPickupCount_Green, totalPickupCount_Green);
+	}
+	else
+	{
+		Format(hudMsg_Green, sizeof(hudMsg_Green), "%i", totalPickupCount_Green);
+	}
+
+	if (g_TopPickupCount_Yellow > 0)
+	{
+		Format(hudMsg_Yellow, sizeof(hudMsg_Yellow), "%i\n%i", g_TopPickupCount_Yellow, totalPickupCount_Yellow);
+	}
+	else
+	{
+		Format(hudMsg_Yellow, sizeof(hudMsg_Yellow), "%i", totalPickupCount_Yellow);
 	}
 
 	switch (team)
@@ -1931,11 +2306,28 @@ void ShowHudText_TeamPickupCounts(int client = -1, TFTeam team = TFTeam_Unassign
 					continue;
 				}
 
-				SetHudTextParams(0.41, -0.85, 6969.0, g_HudTextColor_Blue[0], g_HudTextColor_Blue[1], g_HudTextColor_Blue[2], 255, 0, 0.1, 0.1, 0.1);
-				ShowHudText(c, Channel_BluePickups, hudMsg_Blue);
+				if (g_Is4Team)
+				{
+					SetHudTextParams(0.31, -0.85, 6969.0, g_HudTextColor_Blue[0], g_HudTextColor_Blue[1], g_HudTextColor_Blue[2], 255, 0, 0.1, 0.1, 0.1);
+					ShowHudText(c, Channel_BluePickups, hudMsg_Blue);
 
-				SetHudTextParams(0.58, -0.85, 6969.0, g_HudTextColor_Red[0], g_HudTextColor_Red[1], g_HudTextColor_Red[2], 255, 0, 0.1, 0.1, 0.1);
-				ShowHudText(c, Channel_RedPickups, hudMsg_Red);
+					SetHudTextParams(0.41, -0.85, 6969.0, g_HudTextColor_Red[0], g_HudTextColor_Red[1], g_HudTextColor_Red[2], 255, 0, 0.1, 0.1, 0.1);
+					ShowHudText(c, Channel_RedPickups, hudMsg_Red);
+
+					SetHudTextParams(0.58, -0.85, 6969.0, g_HudTextColor_Green[0], g_HudTextColor_Green[1], g_HudTextColor_Green[2], 255, 0, 0.1, 0.1, 0.1);
+					ShowHudText(c, Channel_GreenPickups, hudMsg_Green);
+
+					SetHudTextParams(0.68, -0.85, 6969.0, g_HudTextColor_Yellow[0], g_HudTextColor_Yellow[1], g_HudTextColor_Yellow[2], 255, 0, 0.1, 0.1, 0.1);
+					ShowHudText(c, Channel_YellowPickups, hudMsg_Yellow);
+				}
+				else
+				{
+					SetHudTextParams(0.41, -0.85, 6969.0, g_HudTextColor_Blue[0], g_HudTextColor_Blue[1], g_HudTextColor_Blue[2], 255, 0, 0.1, 0.1, 0.1);
+					ShowHudText(c, Channel_BluePickups, hudMsg_Blue);
+
+					SetHudTextParams(0.58, -0.85, 6969.0, g_HudTextColor_Red[0], g_HudTextColor_Red[1], g_HudTextColor_Red[2], 255, 0, 0.1, 0.1, 0.1);
+					ShowHudText(c, Channel_RedPickups, hudMsg_Red);
+				}
 
 				if (c == client && IsValidClientInGame(c))
 				{
@@ -1961,10 +2353,17 @@ void ShowHudText_TeamPickupCounts(int client = -1, TFTeam team = TFTeam_Unassign
 					continue;
 				}
 
-				SetHudTextParams(0.58, -0.85, 6969.0, g_HudTextColor_Red[0], g_HudTextColor_Red[1], g_HudTextColor_Red[2], 255, 0, 0.1, 0.1, 0.1);
+				if (g_Is4Team)
+				{
+					SetHudTextParams(0.31, -0.85, 6969.0, g_HudTextColor_Blue[0], g_HudTextColor_Blue[1], g_HudTextColor_Blue[2], 255, 0, 0.1, 0.1, 0.1);
+				}
+				else
+				{
+					SetHudTextParams(0.58, -0.85, 6969.0, g_HudTextColor_Red[0], g_HudTextColor_Red[1], g_HudTextColor_Red[2], 255, 0, 0.1, 0.1, 0.1);
+				}
 				ShowHudText(c, Channel_RedPickups, hudMsg_Red);
 
-				if (c == client && IsValidClientInGame(c))
+				if (c == client && IsValidClient(c))
 				{
 					break;
 				}
@@ -1987,8 +2386,67 @@ void ShowHudText_TeamPickupCounts(int client = -1, TFTeam team = TFTeam_Unassign
 					continue;
 				}
 
-				SetHudTextParams(0.41, -0.85, 6969.0, g_HudTextColor_Blue[0], g_HudTextColor_Blue[1], g_HudTextColor_Blue[2], 255, 0, 0.1, 0.1, 0.1);
+				if (g_Is4Team)
+				{
+					SetHudTextParams(0.41, -0.85, 6969.0, g_HudTextColor_Red[0], g_HudTextColor_Red[1], g_HudTextColor_Red[2], 255, 0, 0.1, 0.1, 0.1);
+				}
+				else
+				{
+					SetHudTextParams(0.41, -0.85, 6969.0, g_HudTextColor_Blue[0], g_HudTextColor_Blue[1], g_HudTextColor_Blue[2], 255, 0, 0.1, 0.1, 0.1);
+				}
 				ShowHudText(c, Channel_BluePickups, hudMsg_Blue);
+
+				if (c == client && IsValidClientInGame(c))
+				{
+					break;
+				}
+			}
+		}
+		case TFTeam_Green:
+		{
+			for (int c = client; c <= MaxClients; c++)
+			{
+				if (c == -1)
+				{
+					c = 1;
+				}
+				if (!IsValidClientInGame(c) || IsFakeClient(c))
+				{
+					if (c == client)
+					{
+						break;
+					}
+					continue;
+				}
+
+				SetHudTextParams(0.58, -0.85, 6969.0, g_HudTextColor_Green[0], g_HudTextColor_Green[1], g_HudTextColor_Green[2], 255, 0, 0.1, 0.1, 0.1);
+				ShowHudText(c, Channel_GreenPickups, hudMsg_Green);
+
+				if (c == client && IsValidClientInGame(c))
+				{
+					break;
+				}
+			}
+		}
+		case TFTeam_Yellow:
+		{
+			for (int c = client; c <= MaxClients; c++)
+			{
+				if (c == -1)
+				{
+					c = 1;
+				}
+				if (!IsValidClientInGame(c) || IsFakeClient(c))
+				{
+					if (c == client)
+					{
+						break;
+					}
+					continue;
+				}
+
+				SetHudTextParams(0.68, -0.85, 6969.0, g_HudTextColor_Yellow[0], g_HudTextColor_Yellow[1], g_HudTextColor_Yellow[2], 255, 0, 0.1, 0.1, 0.1);
+				ShowHudText(c, Channel_YellowPickups, hudMsg_Yellow);
 
 				if (c == client && IsValidClientInGame(c))
 				{
@@ -2002,39 +2460,6 @@ void ShowHudText_TeamPickupCounts(int client = -1, TFTeam team = TFTeam_Unassign
 Action Timer_ShowHudText_TeamPickupCounts(Handle timer, int client)
 {
 	ShowHudText_TeamPickupCounts(client);
-	return Plugin_Stop;
-}
-
-/**
- * Shows text below the normal pickup count hud text, saying "You're team leader!", colored based on the leader's team.
- *
- * @param client     The team leader to display to.
- */
-void ShowHudText_TeamLeaderStatus(int client)
-{
-	if (!IsValidClientInGame(client) || IsFakeClient(client))
-	{
-		return;
-	}
-
-	DebugPrint(Debug_HUD, "ShowHudText_TeamLeaderStatus %N", client);
-	switch (TF2_GetClientTeam(client))
-	{
-		case TFTeam_Red:
-		{
-			SetHudTextParams(-1.0, 0.9, 6969.0, g_HudTextColor_Red[0], g_HudTextColor_Red[1], g_HudTextColor_Red[2], 255, 2, 0.1, 0.1, 0.0);
-		}
-		case TFTeam_Blue:
-		{
-			SetHudTextParams(-1.0, 0.9, 6969.0, g_HudTextColor_Blue[0], g_HudTextColor_Blue[1], g_HudTextColor_Blue[2], 255, 2, 0.1, 0.1, 0.0);
-		}
-	}
-	ShowHudText(client, Channel_TeamLeader, "\nYou're team leader!");
-}
-
-Action Timer_ShowHudText_TeamLeaderStatus(Handle timer, int client)
-{
-	ShowHudText_TeamLeaderStatus(client);
 	return Plugin_Stop;
 }
 
@@ -2060,7 +2485,14 @@ void ShowHudText_CaptureZoneCountdown()
 			continue;
 		}
 		SetHudTextParams(-1.0, -0.8, 2.0, 250, 250, 250, 255, 1, 0.1, 0.1, 0.1);
-		ShowHudText(c, Channel_Countdown, hudMsg);
+		if (g_Is4Team)
+		{
+			ShowHudText(c, Channel_Countdown, hudMsg);
+		}
+		else
+		{
+			ShowHudText(c, Channel_Countdown_2team, hudMsg);
+		}
 	}
 }
 
@@ -2086,6 +2518,7 @@ Action Timer_ShowHudText_CaptureZoneCountdown(Handle timer)
  */
 void ShowHudText_TeamWinCountdown(TFTeam winningTeam)
 {
+	DebugPrint(Debug_HUD, "ShowHudText_TeamWinCountdown %i", view_as<int>(winningTeam));
 	int hudTextEffect;
 	if (!g_HudTimer_FirstFinaleCountdown)
 	{
@@ -2104,6 +2537,14 @@ void ShowHudText_TeamWinCountdown(TFTeam winningTeam)
 		case TFTeam_Blue:
 		{
 			Format(hudMsg, sizeof(hudMsg), "Blue");
+		}
+		case TFTeam_Green:
+		{
+			Format(hudMsg, sizeof(hudMsg), "Green");
+		}
+		case TFTeam_Yellow:
+		{
+			Format(hudMsg, sizeof(hudMsg), "Yellow");
 		}
 	}
 	Format(hudMsg2, sizeof(hudMsg2), " team wins in %i second", g_HudTimerNum_Finale);
@@ -2134,8 +2575,23 @@ void ShowHudText_TeamWinCountdown(TFTeam winningTeam)
 			{
 				SetHudTextParams(-1.0, -0.8, 2.0, g_HudTextColor_Blue[0], g_HudTextColor_Blue[1], g_HudTextColor_Blue[2], 255, hudTextEffect, 0.1, 0.1, 0.1);
 			}
+			case TFTeam_Green:
+			{
+				SetHudTextParams(-1.0, -0.8, 2.0, g_HudTextColor_Green[0], g_HudTextColor_Green[1], g_HudTextColor_Green[2], 255, hudTextEffect, 0.1, 0.1, 0.1);
+			}
+			case TFTeam_Yellow:
+			{
+				SetHudTextParams(-1.0, -0.8, 2.0, g_HudTextColor_Yellow[0], g_HudTextColor_Yellow[1], g_HudTextColor_Yellow[2], 255, hudTextEffect, 0.1, 0.1, 0.1);
+			}
 		}
-		ShowHudText(c, Channel_Countdown, hudMsg);
+		if (g_Is4Team)
+		{
+			ShowHudText(c, Channel_Countdown, hudMsg);
+		}
+		else
+		{
+			ShowHudText(c, Channel_Countdown_2team, hudMsg);
+		}
 	}
 }
 
@@ -2171,6 +2627,7 @@ Action Timer_ShowHudText_TeamWinCountdown(Handle timer, TFTeam winningTeam)
 				pitch = 100;
 			}
 		}
+		ClearHudText_All(Channel_Countdown);
 		EmitSoundToAll("ui/chime_rd_2base_neg.wav", .pitch=pitch);
 		ShowHudText_TeamWinCountdown(winningTeam);
 	}
@@ -2244,6 +2701,8 @@ void ResetVars()
 	}
 	g_TopPickupCount_Red = 0;
 	g_TopPickupCount_Blue = 0;
+	g_TopPickupCount_Green = 0;
+	g_TopPickupCount_Yellow = 0;
 	g_Logic_PlayerDeathPickupValue = 1;
 	g_Logic_IsCaptureZoneOpen = false;
 	delete g_HudTimer_CaptureZoneCountdown;
@@ -2251,8 +2710,24 @@ void ResetVars()
 	ClearArray(g_PickupExpireTimers);
 	g_Logic_HasRedFirstFlagStolen = false;
 	g_Logic_HasBlueFirstFlagStolen = false;
+	g_Logic_HasGreenFirstFlagStolen = false;
+	g_Logic_HasYellowFirstFlagStolen = false;
 	g_Logic_OnPointLimitOccurred = false;
 	g_HudTimer_FirstFinaleCountdown = false;
+}
+
+void Get4TeamStatus(int gamerules)
+{
+	if (!IsValidEntity(gamerules)) return;
+
+	// Somehow it's tried to get m_bFourTeamMode from entities other than the gamerules entity
+	// So we're double checking the classname to prevent that
+	char classname[24];
+	GetEntityClassname(gamerules, classname, sizeof(classname));
+	if (strcmp(classname, "tf_gamerules") == 0)
+	{
+		g_Is4Team = view_as<bool>(GetEntProp(gamerules, Prop_Data, "m_bFourTeamMode"));
+	}
 }
 
 public void TF2_OnWaitingForPlayersStart()
@@ -2463,7 +2938,7 @@ stock bool CanUseBigPickups()
 
 stock int GetAllTeamsClientCount()
 {
-	return GetTeamClientCount(2) + GetTeamClientCount(3);
+	return GetTeamClientCount(2) + GetTeamClientCount(3) + GetTeamClientCount(4) + GetTeamClientCount(5);
 }
 
 /**
@@ -2497,6 +2972,7 @@ stock float GetCaptureZoneDelay(int captureZone)
 	float delay, delayOffset;
 	if (CustomKeyValueExists(captureZone, "capture_delay"))
 	{
+		
 		delay = GetCustomKeyValueFloat(captureZone, "capture_delay");
 	}
 	if (CustomKeyValueExists(captureZone, "capture_delay_offset"))
@@ -2639,7 +3115,9 @@ stock bool IsClientLeadingAnyTeam(int client)
 {
 	if (
 		client == g_TeamLeader_Red ||
-		client == g_TeamLeader_Blue
+		client == g_TeamLeader_Blue ||
+		client == g_TeamLeader_Green ||
+		client == g_TeamLeader_Yellow
 	)
 	{
 		return true;
@@ -2739,6 +3217,18 @@ stock Action Timer_TriggerVisualizer(Handle timer, DataPack data)
 			g_Colors[0] = g_HudTextColor_Blue[0];
 			g_Colors[1] = g_HudTextColor_Blue[1];
 			g_Colors[2] = g_HudTextColor_Blue[2];
+		}
+		case TFTeam_Green:
+		{
+			g_Colors[0] = g_HudTextColor_Green[0];
+			g_Colors[1] = g_HudTextColor_Green[1];
+			g_Colors[2] = g_HudTextColor_Green[2];
+		}
+		case TFTeam_Yellow:
+		{
+			g_Colors[0] = g_HudTextColor_Yellow[0];
+			g_Colors[1] = g_HudTextColor_Yellow[1];
+			g_Colors[2] = g_HudTextColor_Yellow[2];
 		}
 	}
 	g_Colors[3] = 255;
