@@ -122,7 +122,7 @@ public Plugin myinfo =
 	author = "LordVGames",
 	description = "Recreates player destruction gamemode functionality.",
 	version = VERSION,
-	url = "N/A"
+	url = "https://github.com/LordVGames/TF2C-Player-Destruction"
 }
 
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int errMax)
