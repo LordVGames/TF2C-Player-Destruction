@@ -902,7 +902,7 @@ public void OnStartTouchCaptureZone(int captureZone, int client)
 
 	if (g_PlayerInCaptureZones[client][3] != 0)
 	{
-		LogError("%s Couldn't add 3rd capture zone index to player \"%N\"'s list of capturezones occupied by them!", TAG, client);
+		LogError("%s Couldn't add 5th capture zone index to player \"%N\"'s list of capturezones occupied by them!", TAG, client);
 	}
 	else
 	{
