@@ -3,6 +3,11 @@
 A plugin that recreates the player destruction gamemode from TF2, in TF2C.
 
 No leaked source code was used in the making of this plugin.
+
+## Demo video
+
+https://user-images.githubusercontent.com/51967559/228964518-0ef13fe7-bb6e-4075-bc3e-9b9809eaffdf.mp4
+
 ## Dependencies
 The following plugins are needed to run and compile the plugin.
  - [TF2Classic Tools](https://github.com/tf2classic/SM-TF2Classic-Tools)
@@ -11,13 +16,17 @@ The following plugins are needed to run and compile the plugin.
 
 One more step is needed, as CustomKeyValues doesn't work out of the box.
 You'll need to copy/paste the `"tf"` section of CustomKeyValues' gamedata file, and rename `tf` to `tf2classic`.
+
 ## Usage
+
+**For clients and servers: it may be needed to mount live TF2, especially if you're going to play on live TF2's PD maps.**
 
 If you do not plan to host 4 team player destruction maps, use the base version. Otherwise, use the 4 team version, as it still supports 2 team player destruction maps.
 
 Stripper: Source map configs are provided for the existing TF2 player destruction maps.
 
 When compiling, do not compile the `_logic` file, as that file is included into the main plugin file.
+
 ## Porting/making maps
 Nearly all original I/O and keyvalues related to the gamemode found in TF2 are usable. However, there are catches to some aspects.
 
