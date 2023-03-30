@@ -36,7 +36,7 @@
 	5 - Team victory countdown (replaces the capture zone countdown)
 */
 
-#define VERSION "1.0.0"
+#define VERSION "1.0.1"
 #define TAG "[PD]"
 
 #define MAX_CAPTURE_DELAY 5.0
@@ -247,6 +247,7 @@ public void OnPluginStart()
 	RegConsoleCmd("sm_pd_refresh_hud", Command_ReloadClientHud, "\"sm_pd_refresh_hud\". If any custom HUD elements are missing/broken for you, use this command.");
 	RegAdminCmd("sm_pd_calculate_point_limit", Command_CalculatePointLimit, ADMFLAG_CHANGEMAP, "\"sm_pd_calculate_point_limit\". Manually re-calculates the point limit based on the playercount, and sets it accordingly.");
 	RegAdminCmd("sm_pd_set_point_limit", Command_SetPointLimit, ADMFLAG_CHANGEMAP, "\"sm_pd_set_point_limit\". Manually set the point limit.");
+	RegAdminCmd("sm_pd_set_score_limit", Command_SetPointLimit, ADMFLAG_CHANGEMAP, "\"sm_pd_set_score_limit\". Manually set the point limit.");
 	RegAdminCmd("sm_pd_give_points", Command_GivePDPoints, ADMFLAG_CHEATS, "\"sm_pd_give_points\". Gives you an amount of PD score/points.");
 	RegAdminCmd("sm_pd_spawn_pickup", Command_SpawnPickup, ADMFLAG_CHEATS, "\"sm_pd_spawn_pickup\". Spawns a pickup where you are looking. Can specify a number to set the value of the pickup. If not specified, defaults to 1.");
 	RegAdminCmd("sm_pd_create_pickup", Command_SpawnPickup, ADMFLAG_CHEATS, "\"sm_pd_create_pickup\". Spawns a pickup where you are looking. Can specify a number to set the value of the pickup. If not specified, defaults to 1.");
@@ -455,7 +456,7 @@ Action Command_SetPointLimit(int client, int argc)
 {
 	if (argc != 1)
 	{
-		ReplyToCommand(client, "Command usage: sm_pd_set_score_limit <score>");
+		ReplyToCommand(client, "Command usage: sm_pd_set_point_limit <score>");
 		return Plugin_Handled;
 	}
 	PrintToChatAll("%s Score limit has been set to %i.", TAG, SetPointLimit(GetCmdArgInt(1), true));
@@ -574,7 +575,10 @@ Action Command_ReloadClientHud(int client, int argc)
 	ClearHudText(client, Channel_RedPickups);
 	ClearHudText(client, Channel_GreenPickups);
 	ClearHudText(client, Channel_YellowPickups);
-	CreateTimer(0.25, Timer_ShowHudText_TeamPickupCounts, client);
+	if (!g_Logic_OnPointLimitOccurred)
+	{
+		CreateTimer(0.25, Timer_ShowHudText_TeamPickupCounts, client);
+	}
 	bool isCLientLeader = IsClientLeadingAnyTeam(client);
 	if (g_PickupCount[client] > 0 || isCLientLeader)
 	{
@@ -2741,7 +2745,6 @@ public void TF2_OnWaitingForPlayersEnd()
 	// Flag captures still count towards "tf_flag_caps_per_round"
 	// So we need to set it to 0 to prevent a team winning out of nowhere
 	SetConVarInt(g_FlagCapturesConvar, 0);
-	ResetVars();
 }
 
 /**
@@ -2965,6 +2968,11 @@ stock void Game_EndRound(TFTeam team)
 	DispatchKeyValue(roundWinEnt, "win_reason", "WINREASON_ROUNDSCORELIMIT");
 	DispatchKeyValueInt(roundWinEnt, "force_map_reset", 1);
 	AcceptEntityInput(roundWinEnt, "RoundWin");
+
+	ClearHudText_All(Channel_BluePickups);
+	ClearHudText_All(Channel_RedPickups);
+	ClearHudText_All(Channel_GreenPickups);
+	ClearHudText_All(Channel_YellowPickups);
 }
 
 stock float GetCaptureZoneDelay(int captureZone)

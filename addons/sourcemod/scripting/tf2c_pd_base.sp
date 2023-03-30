@@ -22,7 +22,7 @@
 	5 - Team victory countdown (replaces the capture zone countdown)
 */
 
-#define VERSION "1.0.0"
+#define VERSION "1.0.1"
 #define TAG "[PD]"
 
 #define MAX_CAPTURE_DELAY 5.0
@@ -510,7 +510,10 @@ Action Command_ReloadClientHud(int client, int argc)
 
 	ClearHudText(client, Channel_RedPickups);
 	ClearHudText(client, Channel_BluePickups);
-	CreateTimer(0.25, Timer_ShowHudText_TeamPickupCounts, client);
+	if (!g_Logic_OnPointLimitOccurred)
+	{
+		CreateTimer(0.25, Timer_ShowHudText_TeamPickupCounts, client);
+	}
 	if (g_PickupCount[client] > 0)
 	{
 		ClearHudText(client, Channel_PlayerPickups);
@@ -2266,7 +2269,6 @@ public void TF2_OnWaitingForPlayersEnd()
 	// Flag captures still count towards "tf_flag_caps_per_round"
 	// So we need to set it to 0 to prevent a team winning out of nowhere
 	SetConVarInt(g_FlagCapturesConvar, 0);
-	ResetVars();
 }
 
 /**
@@ -2490,6 +2492,9 @@ stock void Game_EndRound(TFTeam team)
 	DispatchKeyValue(roundWinEnt, "win_reason", "WINREASON_ROUNDSCORELIMIT");
 	DispatchKeyValueInt(roundWinEnt, "force_map_reset", 1);
 	AcceptEntityInput(roundWinEnt, "RoundWin");
+
+	ClearHudText_All(Channel_BluePickups);
+	ClearHudText_All(Channel_RedPickups);
 }
 
 stock float GetCaptureZoneDelay(int captureZone)
