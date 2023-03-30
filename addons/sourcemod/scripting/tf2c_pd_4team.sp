@@ -36,7 +36,7 @@
 	5 - Team victory countdown (replaces the capture zone countdown)
 */
 
-#define VERSION "1.0.1"
+#define VERSION "1.0.2"
 #define TAG "[PD]"
 
 #define MAX_CAPTURE_DELAY 5.0
@@ -2222,11 +2222,10 @@ void ShowHudText_ClientPickupCount(int client, bool isTeamLeader)
 				}
 			}
 			ShowHudText(client, Channel_TeamLeader, "\nYou're team leader!");
-			return;
 		}
 	}
 	SetHudTextParams(-1.0, 0.9, 6969.0, 250, 250, 250, 255, 1, 0.1, 0.1, 0.1);
-	ShowHudText(client, Channel_PlayerStatus, msg);
+	ShowHudText(client, Channel_PlayerPickups, msg);
 }
 
 Action Timer_ShowHudText_ClientPickupCount(Handle timer, int client)

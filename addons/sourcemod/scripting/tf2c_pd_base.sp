@@ -22,7 +22,7 @@
 	5 - Team victory countdown (replaces the capture zone countdown)
 */
 
-#define VERSION "1.0.1"
+#define VERSION "1.0.2"
 #define TAG "[PD]"
 
 #define MAX_CAPTURE_DELAY 5.0
