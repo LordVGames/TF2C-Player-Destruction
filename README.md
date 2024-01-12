@@ -1,6 +1,6 @@
 # TF2C-Player-Destruction
 
-A plugin that recreates the player destruction gamemode from TF2, in TF2C.
+A plugin that recreates the gameplay of the player destruction gamemode from TF2 in TF2C.
 
 No leaked source code was used in the making of this plugin.
 
